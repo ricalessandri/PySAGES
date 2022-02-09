@@ -6,6 +6,8 @@ import hoomd
 import hoomd.md
 import hoomd.dlext
 
+import pysages
+
 from pysages.collective_variables import Component
 from pysages.methods import HarmonicBias, HistogramLogger
 
@@ -69,7 +71,8 @@ def main():
     method = HarmonicBias(cvs, k, center_cv)
     callback = HistogramLogger(100)
 
-    method.run(generate_context, int(1e5), callback, {"A": 7.0}, profile=True)
+    preresult = pysages.run(method, generate_context, int(1e5), {"A": 7.0}, callback=callback)
+    result = preresult.callbacks[0]
 
     # Lmax = np.max([system.box.Lx, system.box.Ly, system.box.Lz])
     Lmax = 5.0
@@ -78,7 +81,7 @@ def main():
     for i in range(len(center_cv)):
         target_hist.append(get_target_dist(center_cv[i], k, (-Lmax / 2, Lmax / 2), bins))
     lims = [(-Lmax / 2, Lmax / 2) for i in range(3)]
-    hist, edges = callback.get_histograms(bins=bins, range=lims)
+    hist, edges = result.get_histograms(bins=bins, range=lims)
     hist_list = [
         np.sum(hist, axis=(1, 2)) / (Lmax**2),
         np.sum(hist, axis=(0, 2)) / (Lmax**2),

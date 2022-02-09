@@ -25,7 +25,7 @@ class Fun(NamedTuple):
 
 
 @dataclass
-class AbstractFit(ABC):
+class AbstractFitModel(ABC):
     """
     Stores the information necessary to approximate the coefficients
     of a basis (Fourier of Chebyshev) expansion of a function (ℝⁿ ↦ ℝ)
@@ -50,18 +50,18 @@ class AbstractFit(ABC):
         return self.grid.is_periodic
 
 
-class SpectralGradientFit(AbstractFit):
+class SpectralGradientFit(AbstractFitModel):
     """
-    Specialization of AbstractFit used when the target values correspond
+    Specialization of AbstractFitModel used when the target values correspond
     to the gradient of the function of interest.
     """
 
     pass
 
 
-class SpectralSobolev1Fit(AbstractFit):
+class SpectralSobolev1Fit(AbstractFitModel):
     """
-    Specialization of AbstractFit used when the target values correspond
+    Specialization of AbstractFitModel used when the target values correspond
     to *both* the values and gradient of the function of interest.
     """
 

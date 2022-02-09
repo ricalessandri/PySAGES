@@ -3,21 +3,23 @@
 # See LICENSE.md and CONTRIBUTORS.md at https://github.com/SSAGESLabs/PySAGES
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from functools import reduce
+from inspect import getfullargspec
 from operator import or_
-from typing import Callable, Mapping
+from typing import Callable, Optional
 
-from jax import jit
+from jax import jit, numpy as np
+from plum import parametric
 
 from pysages.backends import ContextWrapper
 from pysages.collective_variables.core import build
-from pysages.utils import identity
+from pysages.grids import build_grid, get_info
+from pysages.methods.utils import ReplicasConfiguration, methods_dispatch
+from pysages.utils import JaxArray, dispatch, identity
 
 
-# ================ #
-#   Base Classes   #
-# ================ #
-
+# #  Base Classes  # #
 
 class SamplingMethod(ABC):
     """
@@ -29,17 +31,23 @@ class SamplingMethod(ABC):
     All these are intended be enhanced/overwritten by inheriting classes.
     """
 
+    __special_args__ = set()
+
     snapshot_flags = set()
 
-    def __init__(self, cvs, *args, **kwargs):
+    def __init__(self, cvs, **kwargs):
         self.cvs = cvs
         self.cv = build(*cvs)
         self.requires_box_unwrapping = reduce(
             or_, (cv.requires_box_unwrapping for cv in cvs), False
         )
-        self.args = args
         self.kwargs = kwargs
-        self.context = []
+
+    def __getstate__(self):
+        return default_getstate(self)
+
+    def __setstate__(self, state):
+        default_setstate(self, state)
 
     @abstractmethod
     def build(self, snapshot, helpers, *args, **kwargs):
@@ -51,46 +59,22 @@ class SamplingMethod(ABC):
         """
         pass
 
-    def run(
-        self,
-        context_generator: Callable,
-        timesteps: int,
-        callback: Callable = None,
-        context_args: Mapping = None,
-        **kwargs
-    ):
-        """
-        Base implementation of running a single simulation/replica with a sampling method.
-
-        Arguments
-        ---------
-        context_generator: Callable
-            User defined function that sets up a simulation context with the backend.
-            Must return an instance of `hoomd.context.SimulationContext` for HOOMD-blue
-            and `openmm.Simulation` for OpenMM. The function gets `context_args`
-            unpacked for additional user arguments.
-
-        timesteps: int
-            Number of timesteps the simulation is running.
-
-        callback: Optional[Callable]
-            Allows for user defined actions into the simulation workflow of the method.
-            `kwargs` gets passed to the backend `run` function.
-        """
-        if context_args is None:
-            context_args = dict()
-        context = context_generator(**context_args)
-        self.context.append(ContextWrapper(context, self, callback))
-        assert len(self.context) == 1
-        with self.context[0]:
-            self.context[0].run(timesteps, **kwargs)
-
 
 class GriddedSamplingMethod(SamplingMethod):
-    def __init__(self, cvs, grid, *args, **kwargs):
+    __special_args__ = {"grid"}
+
+    def __init__(self, cvs, grid, **kwargs):
         check_dims(cvs, grid)
-        super().__init__(cvs, *args, **kwargs)
+        super().__init__(cvs, **kwargs)
         self.grid = grid
+
+    def __getstate__(self):
+        return (get_info(self.grid), *default_getstate(self))
+
+    def __setstate__(self, state):
+        grid_args, args, kwargs = state
+        args["grid"] = build_grid(*grid_args)
+        default_setstate(self, (args, kwargs))
 
     @abstractmethod
     def build(self, snapshot, helpers, *args, **kwargs):
@@ -98,8 +82,8 @@ class GriddedSamplingMethod(SamplingMethod):
 
 
 class NNSamplingMethod(GriddedSamplingMethod):
-    def __init__(self, cvs, grid, topology, *args, **kwargs):
-        super().__init__(cvs, grid, *args, **kwargs)
+    def __init__(self, cvs, grid, topology, **kwargs):
+        super().__init__(cvs, grid, **kwargs)
         self.topology = topology
 
     @abstractmethod
@@ -107,9 +91,148 @@ class NNSamplingMethod(GriddedSamplingMethod):
         pass
 
 
-# ========= #
-#   Utils   #
-# ========= #
+@parametric
+class Result:
+    @classmethod
+    def __infer_type_parameter__(self, method, *args):
+        return type(method)
+
+    @dispatch
+    def __init__(self, method: SamplingMethod, states, callbacks):
+        self.method = method
+        self.states = states
+        self.callbacks = callbacks
+
+
+# #  Main methods  # #
+
+# This is the user facing method for running simulations
+@dispatch
+def run(
+    method: SamplingMethod,
+    context_generator: Callable,
+    timesteps: int,
+    context_args: Optional[dict] = None,
+    config: ReplicasConfiguration = ReplicasConfiguration(),
+    callback: Optional[Callable] = None,
+    **kwargs
+):
+    """
+    Base implementation for running one or more simulation replicas with the
+    specified `SamplingMethod`.
+
+    Arguments
+    ---------
+    method: SamplingMethod
+
+    context_generator: Callable
+        User defined function that sets up a simulation context with the backend.
+        Must return an instance of `hoomd.context.SimulationContext` for HOOMD-blue
+        and `openmm.Simulation` for OpenMM. The function gets `context_args`
+        unpacked for additional user arguments.
+
+    timesteps: int
+        Number of timesteps the simulation is running.
+
+    context_args: Optional[dict] = None
+        Arguments to pass down to `context_generator` to setup the simulation context.
+
+    config: ReplicasConfiguration = ReplicasConfiguration()
+        Specifies the number of replicas of the simulation to generate.
+        It also contains an `executor` which will manage different process
+        or threads in case the multiple simulation are to be run in parallel.
+        Defaults to `ReplicasConfiguration(1, SerialExecutor())`,
+        which means only one simulation is run.
+
+    callback: Optional[Callable] = None
+        Allows for user defined actions into the simulation workflow of the method.
+        `kwargs` gets passed to the backend `run` function. Default value is `None`.
+    """
+
+    context_args = {} if context_args is None else context_args
+
+    def submit_work(executor, method, callback):
+        return executor.submit(
+            _run, method, context_generator, timesteps, context_args, callback, **kwargs
+        )
+
+    callbacks = [deepcopy(callback) for _ in range(config.copies)]
+    futures = []
+
+    with config.executor as ex:
+        futures = [submit_work(ex, method, cb) for cb in callbacks]
+        states = [future.result() for future in futures]
+
+    return Result(method, states, None if callback is None else callbacks)
+
+
+def _run(method, *args, **kwargs):
+    run = methods_dispatch._functions["run"]
+    return run(method, *args, **kwargs)
+
+
+# We use `methods_dispatch` instead of the global dispatcher `dispatch` to
+# separate the definitions for a single run vs multiple replica simulations.
+@methods_dispatch
+def run(
+    method: SamplingMethod,
+    context_generator: Callable,
+    timesteps: int,
+    context_args: Optional[dict] = None,
+    callback: Optional[Callable] = None,
+    **kwargs
+):
+    """
+    Base implementation for running a single simulation with the specified `SamplingMethod`.
+
+    Arguments
+    ---------
+    method: SamplingMethod
+
+    context_generator: Callable
+        User defined function that sets up a simulation context with the backend.
+        Must return an instance of `hoomd.context.SimulationContext` for HOOMD-blue
+        and `openmm.Simulation` for OpenMM. The function gets `context_args`
+        unpacked for additional user arguments.
+
+    timesteps: int
+        Number of timesteps the simulation is running.
+
+    context_args: Optional[dict] = None
+        Arguments to pass down to `context_generator` to setup the simulation context.
+
+    callback: Optional[Callable] = None
+        Allows for user defined actions into the simulation workflow of the method.
+        `kwargs` gets passed to the backend `run` function. Default value is `None`.
+
+    *Note*: All arguments must be pickable.
+    """
+
+    context_args = {} if context_args is None else context_args
+
+    context = context_generator(**context_args)
+    wrapped_context = ContextWrapper(context, method, callback)
+    with wrapped_context:
+        wrapped_context.run(timesteps, **kwargs)
+
+    return wrapped_context.sampler.state
+
+
+@dispatch.abstract
+def analyze(result: Result):
+    pass
+
+
+# #  Utils  # #
+
+def default_getstate(method: SamplingMethod):
+    init_args = set(getfullargspec(method.__init__).args[1:]) - method.__special_args__
+    return {key: method.__dict__[key] for key in init_args}, method.kwargs
+
+
+def default_setstate(method, state):
+    args, kwargs = state
+    method.__init__(**args, **kwargs)
 
 
 def check_dims(cvs, grid):

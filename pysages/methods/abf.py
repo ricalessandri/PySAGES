@@ -13,8 +13,9 @@ which can be integrated to yield the free energy.
 
 The implementation of the adaptive biasing force method here closely follows
 https://doi.org/10.1063/1.2829861. One important difference is that the time
-derivative of the product :math:`W\\cdot p` (equation 9 of reference) is approximated by a
-second order backward finite difference in the simulation timestep.
+derivative of the product :math:`W\\cdot p` (equation 9 of reference) is
+approximated by a second order backward finite difference in the simulation
+timestep.
 """
 # pylint: disable=invalid-name
 
@@ -86,8 +87,8 @@ class ABF(GriddedSamplingMethod):
 
     snapshot_flags = {"positions", "indices", "momenta"}
 
-    def __init__(self, cvs, grid, *args, **kwargs):
-        super().__init__(cvs, grid, *args, **kwargs)
+    def __init__(self, cvs, grid, **kwargs):
+        super().__init__(cvs, grid, **kwargs)
         self.N = np.asarray(self.kwargs.get("N", 200))
 
     def build(self, snapshot, helpers, *args, **kwargs):
@@ -138,7 +139,7 @@ def _abf(method, snapshot, helpers):
 
     def initialize():
         """
-        Internal function that generates the first ABFstate with correctly shaped JaxArrays
+        Generates the intial ABFstate with correctly shaped JaxArrays
 
         Returns
         -------

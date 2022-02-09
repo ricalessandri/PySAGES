@@ -50,7 +50,9 @@ Instead it inherits the biasing from :py:class:`harmonic_bias.HarmonicBias` but 
 to sample multiple replicas along a path to estimate free energy differences.
 """
 
-from .core import SamplingMethod
+from .core import (
+    SamplingMethod,
+)
 
 from .abf import ABF
 from .ann import ANN
@@ -58,4 +60,10 @@ from .ffs import FFS
 from .funn import FUNN
 from .harmonic_bias import HarmonicBias
 from .umbrella_integration import UmbrellaIntegration
-from .utils import HistogramLogger
+
+from .utils import (
+    HistogramLogger,
+    ReplicasConfiguration,
+    SerialExecutor,
+    methods_dispatch,
+)

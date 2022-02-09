@@ -41,6 +41,12 @@ from .grids import (
     Grid,
 )
 
+from .methods import (
+    ReplicasConfiguration,
+    SerialExecutor,
+    methods_dispatch,
+)
+
 from .utils import (
     dispatch,
 )
@@ -49,3 +55,6 @@ from . import (
     collective_variables,
     methods,
 )
+
+run = dispatch._functions["run"]
+analyze = dispatch._functions["analyze"]

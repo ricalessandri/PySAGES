@@ -1,5 +1,6 @@
 import os
 from mpi4py import MPI
+from mpi4py.futures import MPIPoolExecutor
 
 import sys
 import argparse
@@ -15,6 +16,7 @@ from pysages.collective_variables import Component
 from pysages.methods import UmbrellaIntegration
 
 param1 = {"A": 0.5, "w": 0.2, "p": 2}
+
 
 def generate_context(**kwargs):
     hoomd.context.initialize(mpi_comm=MPI.COMM_SELF)
@@ -46,22 +48,22 @@ def plot_hist(result, bins=50):
     # ax.set_ylabel("p(CV)")
 
     counter = 0
-    hist_per = len(result["center"])//4+1
+    hist_per = len(result["centers"])//4+1
     for x in range(2):
         for y in range(2):
             for i in range(hist_per):
-                if counter+i < len(result["center"]):
-                    center = np.asarray(result["center"][counter+i])
-                    histo, edges = result["histogram"][counter+i].get_histograms(bins=bins)
+                if counter+i < len(result["centers"]):
+                    center = np.asarray(result["centers"][counter+i])
+                    histo, edges = result["histograms"][counter+i].get_histograms(bins=bins)
                     edges = np.asarray(edges)[0]
                     edges = (edges[1:] + edges[:-1]) / 2
                     ax[x,y].plot(edges, histo, label="center {0}".format(center))
                     ax[x,y].legend(loc="best", fontsize="xx-small")
                     ax[x,y].set_yscale("log")
             counter += hist_per
-    while counter < len(result["center"]):
-        center = np.asarray(result["center"][counter])
-        histo, edges = result["histogram"][counter].get_histograms(bins=bins)
+    while counter < len(result["centers"]):
+        center = np.asarray(result["centers"][counter])
+        histo, edges = result["histograms"][counter].get_histograms(bins=bins)
         edges = np.asarray(edges)[0]
         edges = (edges[1:] + edges[:-1]) / 2
         ax[1,1].plot(edges, histo, label="center {0}".format(center))
@@ -77,8 +79,8 @@ def plot_energy(result):
 
     ax.set_xlabel("CV")
     ax.set_ylabel("Free energy $[\epsilon]$")
-    center = np.asarray(result["center"])
-    A = np.asarray(result["A"])
+    center = np.asarray(result["centers"])
+    A = np.asarray(result["free_energy"])
     offset = np.min(A)
     ax.plot(center, A-offset, color="teal")
 
@@ -106,10 +108,11 @@ def main(argv):
     args = get_args(argv)
 
     cvs = [Component([0], 0),]
-    method = UmbrellaIntegration(cvs)
-
     centers = list(np.linspace(args.start_path, args.end_path, args.N_replica))
-    result = method.run(generate_context, args.time_steps, centers, args.k_spring, args.log_period, args.discard_equi)
+    method = UmbrellaIntegration(cvs, centers, args.k_spring, args.log_period, args.discard_equi)
+
+    preresult = pysages.run(method, generate_context, args.time_steps, executor=MPIPoolExecutor)
+    result = pysages.analyze(preresult)
 
     plot_energy(result)
     plot_hist(result)

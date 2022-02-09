@@ -8,11 +8,12 @@ Forward Flux Sampling (FFS).
 Implementation of the direct version of the Forward Flux Sampling algorithm.
 """
 
-from typing import Callable, Mapping, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional
 
 from pysages.backends import ContextWrapper
 from pysages.methods.core import SamplingMethod, generalize
-from pysages.utils import JaxArray, copy
+from pysages.methods.utils import methods_dispatch
+from pysages.utils import JaxArray, copy, dispatch
 
 import jax.numpy as np
 
@@ -52,121 +53,85 @@ class FFS(SamplingMethod):
         self.helpers = helpers
         return _ffs(self, snapshot, helpers)
 
-    # We override the default run method as FFS is algorithmically fairly different
-    def run(
-        self,
-        context_generator: Callable,
-        timesteps: int,
-        dt: float,
-        win_i: float,
-        win_l: float,
-        Nw: int,
-        sampling_steps_basin: int,
-        Nmax_replicas: int,
-        verbose: bool = False,
-        callback: Optional[Callable] = None,
-        context_args: Mapping = dict(),
-        **kwargs,
-    ):
-        """
-        Direct version of the Forward Flux Sampling algorithm.
 
-        Arguments
-        ---------
-        context_generator: Callable
-            User defined function that sets up a simulation context with the backend.
-            Must return an instance of `hoomd.context.SimulationContext` for HOOMD-blue
-            and `simtk.openmm.Simulation` for OpenMM. The function gets `context_args`
-            unpacked for additional user arguments.
+# We override the default run method as FFS is algorithmically fairly different
+#
+# TODO: Implement a distributed version, splitting the work at any `for` loop
+# containing calls to `helpers.restore`
 
-        timesteps: int
-            Number of timesteps the simulation is running.
+@dispatch
+def run(
+    method: FFS,
+    context_generator: Callable,
+    timesteps: int,
+    dt: float,
+    win_i: float,
+    win_l: float,
+    Nw: int,
+    sampling_steps_basin: int,
+    Nmax_replicas: int,
+    verbose: bool = False,
+    callback: Optional[Callable] = None,
+    context_args: dict = {},
+    **kwargs,
+):
+    context = context_generator(**context_args)
+    wrapped_context = ContextWrapper(context, method, callback)
 
-        dt: float
-            timestep of the simulation
+    with wrapped_context:
+        sampler = wrapped_context.sampler
+        xi = sampler.state.xi.block_until_ready()
+        windows = np.linspace(win_i, win_l, num=Nw)
 
-        win_i: float
-            initial window for the system
+        is_configuration_good = check_input(windows, xi, verbose=verbose)
+        if not is_configuration_good:
+            raise ValueError("Bad initial configuration")
 
-        win_l: float
-            last window to be calculated in ffs
+        run = wrapped_context.run
+        helpers = method.helpers
+        cv = method.cv
 
-        Nw: int
-            number of equally spaced windows
+        reference_snapshot = copy(sampler.snapshot)
 
-        sampling_steps_basin: int
-            period for sampling configurations in the basin
+        # We Initially sample from basin A
+        # TODO: bundle the arguments into data structures
+        ini_snapshots = basin_sampling(
+            Nmax_replicas,
+            sampling_steps_basin,
+            windows,
+            run,
+            sampler,
+            reference_snapshot,
+            helpers,
+            cv,
+        )
 
-        Nmax_replicas: int
-            number of stored configuration for each window
+        # Calculate initial flow
+        phi_a, snaps_0 = initial_flow(
+            Nmax_replicas, dt, windows, ini_snapshots, run, sampler, helpers, cv
+        )
 
-        verbose: bool
-            If True more information will be logged (useful for debbuging).
+        write_to_file(phi_a)
+        hist = np.zeros(len(windows))
+        hist = hist.at[0].set(phi_a)
 
-        callback: Optional[Callable]
-            Allows for user defined actions into the simulation workflow of the method.
-            `kwargs` gets passed to the backend `run` function.
-
-        NOTE:
-            The current implementation runs a single simulation/replica,
-            but multiple concurrent simulations can be scripted on top of this.
-        """
-
-        context = context_generator(**context_args)
-        self.context = ContextWrapper(context, self, callback)
-
-        with self.context:
-            sampler = self.context.sampler
-            xi = sampler.state.xi.block_until_ready()
-            windows = np.linspace(win_i, win_l, num=Nw)
-
-            is_configuration_good = check_input(windows, xi, verbose=verbose)
-            if not is_configuration_good:
-                raise ValueError("Bad initial configuration")
-
-            run = self.context.run
-            helpers = self.helpers
-            cv = self.cv
-
-            reference_snapshot = copy(sampler.snapshot)
-
-            # We Initially sample from basin A
-            # TODO: bundle the arguments into data structures
-            ini_snapshots = basin_sampling(
-                Nmax_replicas,
-                sampling_steps_basin,
-                windows,
-                run,
-                sampler,
-                reference_snapshot,
-                helpers,
-                cv,
+        # Calculate conditional probability for each window
+        for k in range(1, len(windows)):
+            if k == 1:
+                old_snaps = snaps_0
+            prob, w1_snapshots = running_window(
+                windows, k, old_snaps, run, sampler, helpers, cv
             )
+            write_to_file(prob)
+            hist = hist.at[k].set(prob)
+            old_snaps = increase_snaps(w1_snapshots, snaps_0)
+            print(f"size of snapshots: {len(old_snaps)}\n")
 
-            # Calculate initial flow
-            phi_a, snaps_0 = initial_flow(
-                Nmax_replicas, dt, windows, ini_snapshots, run, sampler, helpers, cv
-            )
+        K_t = np.prod(hist)
+        write_to_file("# Flux Constant")
+        write_to_file(K_t)
 
-            write_to_file(phi_a)
-            hist = np.zeros(len(windows))
-            hist = hist.at[0].set(phi_a)
-
-            # Calculate conditional probability for each window
-            for k in range(1, len(windows)):
-                if k == 1:
-                    old_snaps = snaps_0
-                prob, w1_snapshots = running_window(
-                    windows, k, old_snaps, run, sampler, helpers, cv
-                )
-                write_to_file(prob)
-                hist = hist.at[k].set(prob)
-                old_snaps = increase_snaps(w1_snapshots, snaps_0)
-                print(f"size of snapshots: {len(old_snaps)}\n")
-
-            K_t = np.prod(hist)
-            write_to_file("# Flux Constant")
-            write_to_file(K_t)
+        return wrapped_context.sampler.state
 
 
 def _ffs(method, snapshot, helpers):

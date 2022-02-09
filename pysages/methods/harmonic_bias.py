@@ -47,7 +47,7 @@ class HarmonicBias(SamplingMethod):
 
     snapshot_flags = {"positions", "indices"}
 
-    def __init__(self, cvs, kspring, center, *args, **kwargs):
+    def __init__(self, cvs, kspring, center, **kwargs):
         """
         Arguments
         ---------
@@ -58,7 +58,7 @@ class HarmonicBias(SamplingMethod):
         center:
             An array of length `N` representing the minimum of the harmonic biasing potential.
         """
-        super().__init__(cvs, args, kwargs)
+        super().__init__(cvs, **kwargs)
         self.cv_dimension = len(cvs)
         self.kspring = kspring
         self.center = center
@@ -92,14 +92,13 @@ class HarmonicBias(SamplingMethod):
                 raise RuntimeError(f"2D kspring with wrong shape, expected ({N}, {N}), got {shape}")
             if not np.allclose(kspring, kspring.T):
                 raise RuntimeError("Spring matrix is not symmetric")
-
             self._kspring = kspring
         else:  # len(shape) == 0 or len(shape) == 1
             kspring_size = kspring.size
             if kspring_size not in (N, 1):
                 raise RuntimeError(f"Wrong kspring size, expected 1 or {N}, got {kspring_size}.")
-
             self._kspring = np.identity(N) * kspring
+
         return self._kspring
 
     @property

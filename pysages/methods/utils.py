@@ -8,7 +8,54 @@ Collection of helpful classes for methods.
 This includes callback functors (callable classes).
 """
 
-import jax.numpy as np
+from concurrent.futures import Executor, Future
+
+from jax import numpy as np
+from plum import Dispatcher
+
+
+# We use this to dispatch on the different `run` implementations
+# for `SamplingMethod`s.
+methods_dispatch = Dispatcher()
+
+
+class SerialExecutor(Executor):
+    """
+    Subclass of `concurrent.futures.Executor` used as the default
+    task manager. It will execute all tasks in serial.
+    """
+
+    def submit(self, fn, *args, **kwargs):  # pylint: disable=arguments-differ
+        """
+        Executes `fn(*args, **kwargs)` and returns a `Future` object wrapping the result.
+        """
+        future = Future()
+        future.set_result(fn(*args, **kwargs))
+        return future
+
+
+class ReplicasConfiguration:
+    """
+    Stores the information necessary to execute multiple simulation runs,
+    including the number of copies of the system and the task manager.
+    """
+
+    def __init__(self, copies: int = 1, executor=SerialExecutor()):
+        """
+        ReplicasConfiguration constructor.
+
+        Arguments
+        ---------
+        copies: int
+            Number of replicas of the simulation system to be generated.
+            Defaults to `1`.
+
+        executor:
+            Task manager that satisfies the `concurrent.futures.Executor` interface.
+            Defaults to `SerialExecutor()`.
+        """
+        self.copies = copies
+        self.executor = executor
 
 
 class HistogramLogger:
@@ -72,3 +119,13 @@ class HistogramLogger:
         """
         self.counter = 0
         self.data = []
+
+
+def average_forces(state, n=1):
+    """
+    Given a `SamplingMethod` state with attributes `force_sum` and `hist`,
+    computes the mean force with appropriate dimensions.
+    """
+    force_sum = state.force_sum
+    shape = (*force_sum.shape[:-1], 1)
+    return force_sum / np.maximum(state.hist.reshape(shape), n)
