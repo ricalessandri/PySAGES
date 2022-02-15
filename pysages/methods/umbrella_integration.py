@@ -57,9 +57,9 @@ def run_umbrella_sampling(sampler_args, context_generator, context_args, center,
         wrapped_context.run(timesteps)
 
     mean = callback.get_means()
-    nabla_A = free_energy_gradient(sampler.kspring, mean, center)
+    nabla_A = free_energy_gradient(sampler.kspring, mean, sampler.center)
 
-    return dict(kspring=kspring, center=center, histogram=callback, histogram_means=mean, nabla_A=nabla_A)
+    return dict(kspring=kspring, center=sampler.center, histogram=callback, histogram_means=mean, nabla_A=nabla_A)
 
 
 class UmbrellaIntegration(HarmonicBias):
