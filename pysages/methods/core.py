@@ -21,6 +21,7 @@ from pysages.utils import JaxArray, dispatch, identity
 
 # #  Base Classes  # #
 
+
 class SamplingMethod(ABC):
     """
     Abstract base class for all sampling methods.
@@ -224,6 +225,7 @@ def analyze(result: Result):
 
 
 # #  Utils  # #
+
 
 def default_getstate(method: SamplingMethod):
     init_args = set(getfullargspec(method.__init__).args[1:]) - method.__special_args__

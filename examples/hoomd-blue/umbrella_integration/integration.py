@@ -114,9 +114,7 @@ def main(argv):
 
     cvs = [Component([0], 0)]
     centers = list(np.linspace(args.start_path, args.end_path, args.N_replicas))
-    method = UmbrellaIntegration(
-        cvs, centers, args.k_spring, args.log_period, args.discard_equi
-    )
+    method = UmbrellaIntegration(cvs, centers, args.k_spring, args.log_period, args.discard_equi)
 
     preresult = pysages.run(method, generate_context, args.time_steps)
     result = pysages.analyze(preresult)

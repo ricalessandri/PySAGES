@@ -30,14 +30,14 @@ def generate_context(**kwargs):
         hoomd.md.integrate.mode_standard(dt=0.01)
 
         nl = hoomd.md.nlist.cell()
-        dpd = hoomd.md.pair.dpd(r_cut=1, nlist=nl, seed=42, kT=1.)
-        dpd.pair_coeff.set("A", "A", A=5., gamma=1.0)
-        dpd.pair_coeff.set("A", "B", A=5., gamma=1.0)
-        dpd.pair_coeff.set("B", "B", A=5., gamma=1.0)
+        dpd = hoomd.md.pair.dpd(r_cut=1, nlist=nl, seed=42, kT=1.0)
+        dpd.pair_coeff.set("A", "A", A=5.0, gamma=1.0)
+        dpd.pair_coeff.set("A", "B", A=5.0, gamma=1.0)
+        dpd.pair_coeff.set("B", "B", A=5.0, gamma=1.0)
 
         periodic = hoomd.md.external.periodic()
-        periodic.force_coeff.set('A', A=param1["A"], i=0, w=param1["w"], p=param1["p"])
-        periodic.force_coeff.set('B', A=0.0, i=0, w=0.02, p=1)
+        periodic.force_coeff.set("A", A=param1["A"], i=0, w=param1["w"], p=param1["p"])
+        periodic.force_coeff.set("B", A=0.0, i=0, w=0.02, p=1)
     return context
 
 
@@ -48,31 +48,33 @@ def plot_hist(result, bins=50):
     # ax.set_ylabel("p(CV)")
 
     counter = 0
-    hist_per = len(result["centers"])//4+1
+    hist_per = len(result["centers"]) // 4 + 1
     for x in range(2):
         for y in range(2):
             for i in range(hist_per):
-                if counter+i < len(result["centers"]):
-                    center = np.asarray(result["centers"][counter+i])
-                    histo, edges = result["histograms"][counter+i].get_histograms(bins=bins)
+                if counter + i < len(result["centers"]):
+                    center = np.asarray(result["centers"][counter + i])
+                    histo, edges = result["histograms"][counter + i].get_histograms(bins=bins)
                     edges = np.asarray(edges)[0]
                     edges = (edges[1:] + edges[:-1]) / 2
-                    ax[x,y].plot(edges, histo, label="center {0}".format(center))
-                    ax[x,y].legend(loc="best", fontsize="xx-small")
-                    ax[x,y].set_yscale("log")
+                    ax[x, y].plot(edges, histo, label="center {0}".format(center))
+                    ax[x, y].legend(loc="best", fontsize="xx-small")
+                    ax[x, y].set_yscale("log")
             counter += hist_per
     while counter < len(result["centers"]):
         center = np.asarray(result["centers"][counter])
         histo, edges = result["histograms"][counter].get_histograms(bins=bins)
         edges = np.asarray(edges)[0]
         edges = (edges[1:] + edges[:-1]) / 2
-        ax[1,1].plot(edges, histo, label="center {0}".format(center))
+        ax[1, 1].plot(edges, histo, label="center {0}".format(center))
         counter += 1
 
     fig.savefig("hist.pdf")
 
+
 def external_field(r, A, p, w):
-    return A*np.tanh(1/(2*np.pi*p*w)*np.cos(p*r))
+    return A * np.tanh(1 / (2 * np.pi * p * w) * np.cos(p * r))
+
 
 def plot_energy(result):
     fig, ax = plt.subplots()
@@ -82,32 +84,59 @@ def plot_energy(result):
     center = np.asarray(result["centers"])
     A = np.asarray(result["free_energy"])
     offset = np.min(A)
-    ax.plot(center, A-offset, color="teal")
+    ax.plot(center, A - offset, color="teal")
 
     x = np.linspace(-3, 3, 50)
     data = external_field(x, **param1)
     offset = np.min(data)
-    ax.plot(x, data-offset, label="test")
+    ax.plot(x, data - offset, label="test")
 
     fig.savefig("energy.pdf")
 
 
 def get_args(argv):
     parser = argparse.ArgumentParser(description="Example script to run umbrella integration")
-    parser.add_argument("--k-spring", "-k", type=float, default=50., help="spring constant for each replica")
-    parser.add_argument("--N-replica", "-N", type=int, default=25, help="Number of replica along the path")
-    parser.add_argument("--start-path", "-s", type=float, default=-1.5, help="Start point of the path")
+    parser.add_argument(
+        "--k-spring", "-k", type=float, default=50.0, help="spring constant for each replica"
+    )
+    parser.add_argument(
+        "--N-replica", "-N", type=int, default=25, help="Number of replica along the path"
+    )
+    parser.add_argument(
+        "--start-path", "-s", type=float, default=-1.5, help="Start point of the path"
+    )
     parser.add_argument("--end-path", "-e", type=float, default=1.5, help="Start point of the path")
-    parser.add_argument("--time-steps", "-t", type=int, default=int(1e5), help="Number of simulation steps for each replica")
-    parser.add_argument("--log-period", "-l", type=int, default=int(50), help="Frequency of logging the CVS for histogram")
-    parser.add_argument("--discard-equi", "-d", type=int, default=int(1e4), help="Discard timesteps before logging for equilibration")
+    parser.add_argument(
+        "--time-steps",
+        "-t",
+        type=int,
+        default=int(1e5),
+        help="Number of simulation steps for each replica",
+    )
+    parser.add_argument(
+        "--log-period",
+        "-l",
+        type=int,
+        default=int(50),
+        help="Frequency of logging the CVS for histogram",
+    )
+    parser.add_argument(
+        "--discard-equi",
+        "-d",
+        type=int,
+        default=int(1e4),
+        help="Discard timesteps before logging for equilibration",
+    )
     args = parser.parse_args(argv)
     return args
+
 
 def main(argv):
     args = get_args(argv)
 
-    cvs = [Component([0], 0),]
+    cvs = [
+        Component([0], 0),
+    ]
     centers = list(np.linspace(args.start_path, args.end_path, args.N_replica))
     method = UmbrellaIntegration(cvs, centers, args.k_spring, args.log_period, args.discard_equi)
 

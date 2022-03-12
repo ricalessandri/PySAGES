@@ -59,6 +59,7 @@ class FFS(SamplingMethod):
 # TODO: Implement a distributed version, splitting the work at any `for` loop
 # containing calls to `helpers.restore`
 
+
 @dispatch
 def run(
     method: FFS,
@@ -119,9 +120,7 @@ def run(
         for k in range(1, len(windows)):
             if k == 1:
                 old_snaps = snaps_0
-            prob, w1_snapshots = running_window(
-                windows, k, old_snaps, run, sampler, helpers, cv
-            )
+            prob, w1_snapshots = running_window(windows, k, old_snaps, run, sampler, helpers, cv)
             write_to_file(prob)
             hist = hist.at[k].set(prob)
             old_snaps = increase_snaps(w1_snapshots, snaps_0)

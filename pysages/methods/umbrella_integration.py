@@ -60,9 +60,7 @@ class UmbrellaIntegration(SamplingMethod):
         replicas = len(centers)
         ksprings = collect(ksprings, replicas, "ksprings", float)
 
-        self.subsamplers = [
-            HarmonicBias(cvs, k, c) for (k, c) in zip(ksprings, centers)
-        ]
+        self.subsamplers = [HarmonicBias(cvs, k, c) for (k, c) in zip(ksprings, centers)]
         self.hist_periods = collect(hist_periods, replicas, "hist_periods", int)
         self.hist_offsets = collect(hist_offsets, replicas, "hist_offsets", int)
 
@@ -154,7 +152,7 @@ def analyze(result: Result[UmbrellaIntegration]):
         histograms=result.callbacks,
         histogram_means=histogram_means,
         mean_forces=mean_forces,
-        free_energy=free_energy
+        free_energy=free_energy,
     )
 
 
@@ -180,4 +178,4 @@ def free_energy_gradient(K, xi_mean, xi_ref):
 
 def integrate(A, nabla_A, centers, i):
     "Backward Riemann integration"
-    return A[i-1] + nabla_A[i-1].T @ (centers[i] - centers[i-1])
+    return A[i - 1] + nabla_A[i - 1].T @ (centers[i] - centers[i - 1])

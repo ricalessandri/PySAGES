@@ -20,10 +20,10 @@ if not (
 
 # TODO: detect local number of GPUs per node (currently assumes 4)
 try:
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(int(os.environ['OMPI_COMM_WORLD_LOCAL_RANK']) % 4)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"]) % 4)
 except KeyError:
     try:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(int(os.environ['MV2_COMM_WORLD_LOCAL_RANK']) % 4)
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(int(os.environ["MV2_COMM_WORLD_LOCAL_RANK"]) % 4)
     except KeyError:
         # raise EnvironmentError("A valid MPI library was not found")
         pass
