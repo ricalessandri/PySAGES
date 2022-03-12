@@ -19,7 +19,7 @@ from typing import NamedTuple
 
 from jax import numpy as np
 
-from pysages.methods.core import SamplingMethod, generalize
+from pysages.methods.core import SamplingMethod, default_getstate, generalize
 from pysages.utils import JaxArray
 
 
@@ -45,6 +45,8 @@ class HarmonicBias(SamplingMethod):
     Harmonic bias method class.
     """
 
+    __special_args__ = {"kspring", "center"}
+
     snapshot_flags = {"positions", "indices"}
 
     def __init__(self, cvs, kspring, center, **kwargs):
@@ -62,6 +64,12 @@ class HarmonicBias(SamplingMethod):
         self.cv_dimension = len(cvs)
         self.kspring = kspring
         self.center = center
+
+    def __getstate__(self):
+        state = default_getstate(self)
+        state["kspring"] = self._kspring
+        state["center"] = self._center
+        return state
 
     @property
     def kspring(self):
