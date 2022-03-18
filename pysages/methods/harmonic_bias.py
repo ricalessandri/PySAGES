@@ -66,10 +66,10 @@ class HarmonicBias(SamplingMethod):
         self.center = center
 
     def __getstate__(self):
-        state = default_getstate(self)
+        state, kwargs = default_getstate(self)
         state["kspring"] = self._kspring
         state["center"] = self._center
-        return state
+        return state, kwargs
 
     @property
     def kspring(self):
