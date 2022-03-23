@@ -116,14 +116,18 @@ def run(  # pylint: disable=arguments-differ
             _run, method, context_generator, timesteps, context_args, callback, **kwargs
         )
 
-    callbacks_params = zip(method.hist_periods, method.hist_offsets)
-    callbacks = [HistogramLogger(period, offset) for (period, offset) in callbacks_params]
     futures = []
 
     with executor as ex:
-        futures_inputs = zip(method.subsamplers, callbacks)
-        futures = [submit_work(ex, sampler, cb) for sampler, cb in futures_inputs]
-        states = [future.result() for future in futures]
+        for i, sampler in enumerate(method.subsamplers):
+            period = method.hist_periods[i]
+            offset = method.hist_offsets[i]
+            callback = HistogramLogger(period, offset)
+            futures.append(submit_work(ex, sampler, callback))
+
+        results = [future.result() for future in futures]
+        states = [r.states for r in results]
+        callbacks = [r.callbacks for r in results]
 
     return Result(method, states, callbacks)
 

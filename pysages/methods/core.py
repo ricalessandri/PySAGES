@@ -105,6 +105,10 @@ class Result:
         self.callbacks = callbacks
 
 
+class ReplicaResult(Result):
+    pass
+
+
 # #  Main methods  # #
 
 # This is the user facing method for running simulations
@@ -157,14 +161,13 @@ def run(
             _run, method, context_generator, timesteps, context_args, callback, **kwargs
         )
 
-    callbacks = [deepcopy(callback) for _ in range(config.copies)]
-    futures = []
-
     with config.executor as ex:
-        futures = [submit_work(ex, method, cb) for cb in callbacks]
-        states = [future.result() for future in futures]
+        futures = [submit_work(ex, method, callback) for _ in range(config.copies)]
+        results = [future.result() for future in futures]
+        states = [r.states for r in results]
+        callbacks = None if callback is None else [r.callbacks for r in results]
 
-    return Result(method, states, None if callback is None else callbacks)
+    return Result(method, states, callbacks)
 
 
 def _run(method, *args, **kwargs):
@@ -216,7 +219,7 @@ def run(
     with wrapped_context:
         wrapped_context.run(timesteps, **kwargs)
 
-    return wrapped_context.sampler.state
+    return ReplicaResult(method, wrapped_context.sampler.state, callback)
 
 
 @dispatch.abstract
