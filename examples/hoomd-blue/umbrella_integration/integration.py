@@ -1,3 +1,12 @@
+"""
+  This example illustrates how the Umbrella Integration method is employed
+  to calculate the free energy profile of a user-defined collective variable.
+  Multiple walkers are launched sequentially via the default SerialExecutor,
+  each performs a HarmonicBias sampling within a given window.
+
+  This is part of PySAGES.
+"""
+
 #!/usr/bin/env python3
 import sys
 import argparse
@@ -17,6 +26,12 @@ param1 = {"A": 0.5, "w": 0.2, "p": 2}
 
 
 def generate_context(**kwargs):
+    """ Generate a simulation context to be used by the sampler
+        - the initial configuration start.gsd was already generated
+        - setting up time integrator, neighbor list
+        - force field: dpd between all the particles
+        - an external field on the tagged particle (tag 0, type A)
+    """
     hoomd.context.initialize("")
     context = hoomd.context.SimulationContext()
     with context:
@@ -109,16 +124,28 @@ def get_args(argv):
 
 
 def main(argv):
-
+    # parse the command-line arguments
     args = get_args(argv)
 
+    # define the collective variable: of type Component
+    #   particle group: consisting particle of tag 0
+    #   Cartesian coordinate axis component: 0 (X)
     cvs = [Component([0], 0)]
+
+    # create a list of centers for umbrella sampling of the CV(s)
     centers = list(np.linspace(args.start_path, args.end_path, args.N_replicas))
+
+    # define the sampling method with the CV, the CV centers and its specific parameters
     method = UmbrellaIntegration(cvs, centers, args.k_spring, args.log_period, args.discard_equi)
 
+    # launch the sampling which returns the raw result:
+    #   executor is responsible for launch multiple walkers each with ancontext
     preresult = pysages.run(method, generate_context, args.time_steps)
+
+    # post-process the raw result: in this case analyze() is dispatched through UmbrellaIntegration
     result = pysages.analyze(preresult)
 
+    # plotting the result
     plot_energy(result)
     plot_hist(result)
 

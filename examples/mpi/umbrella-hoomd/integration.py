@@ -1,3 +1,12 @@
+"""
+  This example illustrates how the Umbrella Integration method is employed
+  to calculate the free energy profile of a user-defined collective variable.
+  Multiple walkers are launched concurrently via MPIPoolExecutor,
+  each performs a HarmonicBias sampling within a given window.
+
+  This is part of PySAGES.
+"""
+
 import os
 from mpi4py import MPI
 from mpi4py.futures import MPIPoolExecutor
@@ -15,6 +24,7 @@ import pysages
 from pysages.collective_variables import Component
 from pysages.methods import UmbrellaIntegration
 
+
 param1 = {"A": 0.5, "w": 0.2, "p": 2}
 
 
@@ -26,7 +36,6 @@ def generate_context(**kwargs):
         - an external field on the tagged particle (tag 0, type A)
     """
     hoomd.context.initialize(mpi_comm=MPI.COMM_SELF)
-
     context = hoomd.context.SimulationContext()
     with context:
         print("Operating replica {0}".format(kwargs.get("replica_num")))
@@ -88,9 +97,9 @@ def plot_energy(result):
     ax.set_xlabel("CV")
     ax.set_ylabel("Free energy $[\epsilon]$")
     center = np.asarray(result["centers"])
-    A = np.asarray(result["free_energy"])
-    offset = np.min(A)
-    ax.plot(center, A - offset, color="teal")
+    free_energy = np.asarray(result["free_energy"])
+    offset = np.min(free_energy)
+    ax.plot(center, free_energy - offset, color="teal")
 
     x = np.linspace(-3, 3, 50)
     data = external_field(x, **param1)
@@ -101,55 +110,33 @@ def plot_energy(result):
 
 
 def get_args(argv):
+    available_args = [
+        ("k-spring", "k", float, 50, "Spring constant for each replica"),
+        ("N-replicas", "N", int, 25, "Number of replicas along the path"),
+        ("start-path", "s", float, -1.5, "Start point of the path"),
+        ("end-path", "e", float, 1.5, "Start point of the path"),
+        ("time-steps", "t", int, 1e5, "Number of simulation steps for each replica"),
+        ("log-period", "l", int, 50, "Frequency of logging the CVS for histogram"),
+        ("discard-equi", "d", int, 1e4, "Discard timesteps before logging for equilibration"),
+    ]
     parser = argparse.ArgumentParser(description="Example script to run umbrella integration")
-    parser.add_argument(
-        "--k-spring", "-k", type=float, default=50.0, help="spring constant for each replica"
-    )
-    parser.add_argument(
-        "--N-replica", "-N", type=int, default=25, help="Number of replica along the path"
-    )
-    parser.add_argument(
-        "--start-path", "-s", type=float, default=-1.5, help="Start point of the path"
-    )
-    parser.add_argument("--end-path", "-e", type=float, default=1.5, help="Start point of the path")
-    parser.add_argument(
-        "--time-steps",
-        "-t",
-        type=int,
-        default=int(1e5),
-        help="Number of simulation steps for each replica",
-    )
-    parser.add_argument(
-        "--log-period",
-        "-l",
-        type=int,
-        default=int(50),
-        help="Frequency of logging the CVS for histogram",
-    )
-    parser.add_argument(
-        "--discard-equi",
-        "-d",
-        type=int,
-        default=int(1e4),
-        help="Discard timesteps before logging for equilibration",
-    )
+    for (name, short, T, val, doc) in available_args:
+        parser.add_argument("--" + name, "-" + short, type=T, default=T(val), help=doc)
     args = parser.parse_args(argv)
     return args
 
 
 def main(argv):
-    # parse the command line arguments
+    # parse the command-line arguments
     args = get_args(argv)
 
     # define the collective variable: of type Component
     #   particle group: consisting particle of tag 0
     #   Cartesian coordinate axis component: 0 (X)
-    cvs = [
-        Component([0], 0),
-    ]
+    cvs = [Component([0], 0)]
 
     # create a list of centers for umbrella sampling of the CV(s)
-    centers = list(np.linspace(args.start_path, args.end_path, args.N_replica))
+    centers = list(np.linspace(args.start_path, args.end_path, args.N_replicas))
 
     # define the sampling method with the CV, the CV centers and its specific parameters
     method = UmbrellaIntegration(cvs, centers, args.k_spring, args.log_period, args.discard_equi)
